@@ -1,0 +1,53 @@
+{
+  "id": "intent-model-router",
+  "name": "Intent Model Router",
+  "description": "Routes routine turns to GLM, serious turns to GPT-5.5/default, optional Fable escalations, and logs Fable cost telemetry.",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "routineModel": { "type": "string" },
+      "deepModel": { "type": "string" },
+      "fableModel": { "type": "string" },
+      "fableMode": { "type": "string", "enum": ["off", "explicit", "auto"] },
+      "enableAnthropic": { "type": "boolean", "description": "Deprecated compatibility alias: true behaves like fableMode=explicit when fableMode is absent." },
+      "monthlyBudgetUsd": { "type": "number", "minimum": 0, "description": "Deprecated; Fable budget enforcement uses fableDailyBudgetUsd." },
+      "allowExplicitOverBudget": { "type": "boolean", "description": "Deprecated and ignored; use fableDailyBudgetOverride with approvedBy starting human." },
+      "fableDailyBudgetUsd": { "type": "number", "minimum": 0 },
+      "fableDailyBudgetTz": { "type": "string" },
+      "fableDailyBudgetOverride": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+          "limitUsd": { "type": "number", "minimum": 0 },
+          "approvedBy": { "type": "string", "pattern": "^human(:|$).*" },
+          "reason": { "type": "string", "minLength": 1 }
+        },
+        "required": ["date", "limitUsd", "approvedBy", "reason"]
+      },
+      "costLogPath": { "type": "string" },
+      "costTracking": { "type": "boolean" },
+      "logAllUsage": { "type": "boolean" },
+      "logCosts": { "type": "boolean" },
+      "logDecisions": { "type": "boolean" },
+      "enabled": { "type": "boolean" },
+      "pricingPerMTok": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "input": { "type": "number", "minimum": 0 },
+            "output": { "type": "number", "minimum": 0 },
+            "cacheRead": { "type": "number", "minimum": 0 },
+            "cacheWrite": { "type": "number", "minimum": 0 }
+          }
+        }
+      }
+    }
+  }
+}

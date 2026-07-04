@@ -1,0 +1,99 @@
+***definitions***
+
+- :IntentModelRouter: is the OpenClaw plugin at `plugins/intent-model-router` that chooses a model before an agent run.
+- :RoutineModel: is the low-cost model used for routine messaging.
+- :DeepModel: is the default strong model used for ordinary technical conversation, scripting, and coding tasks.
+- :FableModel: is the Anthropic Claude Fable API model used only for high-value serious coding, mathematics, architecture, proof-like reasoning, research design, or stuck debugging.
+- :FableMode: is the string plugin config key `fableMode` with values `off`, `explicit`, or `auto`.
+- :ExplicitFableRequest: is a prompt that explicitly asks for Claude Fable, Anthropic Fable, or `fable` as the model.
+- :AutoFableCandidate: is a prompt that appears to require exceptional reasoning because it contains hard proof/math/architecture language, stuck-debugging language, or serious research-design language as defined by the classifier patterns.
+- :CostLedger: is a local JSONL file recording per-turn model usage and estimated USD cost without storing prompts, replies, API keys, or secret material.
+- :DailyBudget: is the plugin config key `fableDailyBudgetUsd`, a best-effort soft USD limit for :FableModel: usage within the current local budget day.
+- :BudgetDay: is the local calendar day of a ledger entry, represented as `YYYY-MM-DD` in `fableDailyBudgetTz` (default `America/Los_Angeles`).
+- :HumanOverride: is a same-day `fableDailyBudgetOverride` object with `approvedBy` beginning `human`, a date, reason, and higher `limitUsd`.
+- :LogAllUsage: is the boolean plugin config key `logAllUsage`; when false, only :FableModel: usage is recorded in :CostLedger:.
+- :PricingTable: is the plugin config key `pricingPerMTok`, mapping provider/model refs to USD-per-million-token rates for `input`, `output`, `cacheRead`, and `cacheWrite`.
+- :UsageEvent: is an OpenClaw `llm_output` hook event containing provider, model, resolved reference, and token usage.
+- :RoutingDecision: is the plugin's choice to leave the default model unchanged, route to :RoutineModel:, or route to :FableModel:.
+- :BudgetSummary: is a ledger-safe object containing `dailyBudgetUsd`, `dayToDateUsd`, `remainingUsd`, `day`, `overrideActive`, and `budgetExceeded`.
+
+***implementation reqs***
+
+- The implementation shall remain a local OpenClaw plugin with no external service calls.
+- The implementation shall not require an Anthropic API key to load, test, or route non-Fable traffic.
+- The implementation shall keep existing routing behavior: routine messages go to :RoutineModel:, and substantive technical work defaults to :DeepModel: by leaving the model unchanged unless :FableMode: permits Fable routing.
+- The implementation shall use config key `fableMode` with string values `off`, `explicit`, and `auto`; default shall be `off`.
+- The implementation shall treat legacy `enableAnthropic: true` as equivalent to `fableMode: explicit` when `fableMode` is absent, for backward compatibility.
+- The implementation shall make `fableModel`, `fableMode`, `fableDailyBudgetUsd`, `fableDailyBudgetTz`, `fableDailyBudgetOverride`, `costLogPath`, `logAllUsage`, `pricingPerMTok`, and logging behavior configurable through plugin config.
+- The implementation shall update `openclaw.plugin.json` config schema for all supported config keys because the schema uses `additionalProperties: false`.
+- The implementation shall default `fableModel` to `anthropic/claude-fable-5` as a placeholder configurable model ref; this ref may need adjustment after Anthropic model discovery.
+- The implementation shall default :PricingTable: for `anthropic/claude-fable-5` to input `$10`, output `$50`, cacheRead `$1`, and cacheWrite `$12.50` per million tokens unless overridden.
+- The implementation shall default :LogAllUsage: to `false`, recording only :FableModel: usage.
+- The implementation shall use the OpenClaw `before_model_resolve` hook for routing decisions and the `llm_output` hook for usage/cost accounting.
+- The implementation shall write only bounded JSON objects to :CostLedger: and shall avoid raw prompt/reply text.
+- The implementation shall tolerate missing usage fields, missing run IDs, malformed ledger lines, missing directories, and write errors without breaking agent turns.
+- The implementation shall handle malformed ledger lines by skipping them and optionally logging a warning when decision/cost logging is enabled.
+- The implementation shall enforce :DailyBudget: as a best-effort soft local guard before selecting :FableModel:; small concurrent or single-call overspend is an accepted residual risk because final provider usage is only known after the call.
+- The implementation shall ignore deprecated `allowExplicitOverBudget`; over-budget Fable routing requires a same-day :HumanOverride:.
+
+***test reqs***
+
+- Tests shall verify classification for routine, deep, explicit-Fable, and auto-Fable prompts.
+- Tests shall verify :FableMode: disables or restricts Fable routing as specified.
+- Tests shall verify legacy `enableAnthropic: true` maps to explicit-only Fable behavior when `fableMode` is absent.
+- Tests shall verify daily budget enforcement reads :CostLedger:, excludes other budget days, skips malformed lines, and prevents Fable routing after today's Fable ledger total reaches :DailyBudget: unless a same-day :HumanOverride: raises the limit.
+- Tests shall verify cost estimation from input, output, cache-read, and cache-write token counts.
+- Tests shall verify :CostLedger: entries do not include raw prompt or assistant text.
+- Tests shall verify current OmegaClaw/ProtoMegaBot conservative routing behavior remains intact.
+- Tests shall verify `openclaw.plugin.json` parses and permits the new config keys.
+
+***functional specs***
+
+- The :IntentModelRouter: shall classify empty, short conversational, and explicitly cheap-model prompts as routine.
+ ***acceptance tests***
+ - Given `thanks`, classification returns routine unless an explicit non-routine model request is present.
+ - Given `use glm for this`, classification returns routine.
+
+- The :IntentModelRouter: shall classify ordinary coding, repository, research, experiment, and technical prompts as deep by default, not Fable.
+ ***acceptance tests***
+ - Given `write a Python script to parse logs`, classification returns deep.
+ - Given `inspect this repository and fix the failing pytest`, classification returns deep.
+
+- The :IntentModelRouter: shall classify :ExplicitFableRequest: prompts as Fable.
+ ***acceptance tests***
+ - Given `use Claude Fable for this proof`, classification returns Fable.
+ - Given `please run this on fable`, classification returns Fable.
+
+- The :IntentModelRouter: shall classify :AutoFableCandidate: prompts as Fable-eligible only when :FableMode: is `auto`.
+ ***acceptance tests***
+ - Given `we are stuck debugging a subtle race condition after multiple failed fixes`, classification returns Fable-eligible when :FableMode: is `auto`.
+ - Given `develop a proof strategy for this theorem and check edge cases`, classification returns Fable-eligible when :FableMode: is `auto`.
+ - Given the same prompts when :FableMode: is `explicit`, routing does not use :FableModel: unless an :ExplicitFableRequest: is present.
+
+- The :IntentModelRouter: shall route to :FableModel: only when :FableMode: permits it and the :DailyBudget: is not exhausted, or a same-day human-approved override raises the effective limit.
+ ***acceptance tests***
+ - Given :FableMode: `off`, even an explicit Fable prompt does not route to :FableModel:.
+ - Given :FableMode: `explicit`, only :ExplicitFableRequest: prompts route to :FableModel:.
+ - Given :FableMode: `auto`, :ExplicitFableRequest: and :AutoFableCandidate: prompts route to :FableModel:.
+ - Given today's Fable ledger total greater than or equal to :DailyBudget:, automatic Fable routing falls back to :DeepModel:.
+ - Given today's Fable ledger total greater than or equal to :DailyBudget:, explicit Fable routing also falls back to :DeepModel: unless a same-day :HumanOverride: raises the limit.
+ - Given deprecated `allowExplicitOverBudget: true` without :HumanOverride:, Fable routing remains blocked over budget.
+
+- The :IntentModelRouter: shall compute :BudgetSummary: before Fable routing decisions.
+ ***acceptance tests***
+ - Given ledger entries for another budget day and today, only today's entries with `budgetClass: fable` count toward `dayToDateUsd`.
+ - Given a malformed ledger line, budget computation skips it and continues.
+ - Given no ledger file, budget computation returns zero day-to-date spend.
+ - Given unreadable ledger state, Fable routing fails closed to :DeepModel:.
+
+- The :IntentModelRouter: shall record estimated cost for Fable :UsageEvent: objects in :CostLedger:.
+ ***acceptance tests***
+ - Given usage of 1,000,000 input tokens and 100,000 output tokens at `$10/$50` per million tokens, the cost estimate is `$15.00` before cache effects.
+ - Given a Fable `llm_output` event, the ledger entry includes timestamp, budget day, run id if available, session key if available, provider/model refs, token counts, estimated USD cost, `budgetClass: fable`, and :BudgetSummary:.
+ - Given a non-Fable `llm_output` event and :LogAllUsage: disabled, no ledger entry is written.
+ - Given a non-Fable `llm_output` event and :LogAllUsage: enabled, a ledger entry may be written with `budgetClass: other` and shall not count toward :DailyBudget:.
+
+- The :IntentModelRouter: shall preserve privacy and credential hygiene in cost tracking.
+ ***acceptance tests***
+ - Ledger entries do not contain prompt text, assistant text, API keys, authorization headers, environment values, or file contents.
+ - Ledger write failures are logged as warnings at most and do not block agent replies.

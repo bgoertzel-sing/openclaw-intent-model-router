@@ -1,0 +1,35 @@
+{
+  "name": "openclaw-intent-model-router",
+  "version": "0.1.0",
+  "type": "module",
+  "private": false,
+  "openclaw": {
+    "extensions": [
+      "./index.js"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.6.10",
+      "minGatewayVersion": "2026.6.10"
+    },
+    "build": {
+      "openclawVersion": "2026.6.10",
+      "pluginSdkVersion": "2026.6.10"
+    }
+  },
+  "description": "Cost-aware OpenClaw intent/model router with fail-closed daily Fable budget enforcement.",
+  "scripts": {
+    "test": "node --test index.test.js",
+    "check": "node --check index.js && node --check router-core.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bgoertzel-sing/openclaw-intent-model-router.git"
+  },
+  "keywords": [
+    "openclaw",
+    "model-router",
+    "llm-routing",
+    "cost-accounting",
+    "budget-guard"
+  ]
+}

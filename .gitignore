@@ -1,0 +1,9 @@
+node_modules/
+npm-debug.log*
+*.log
+usage.jsonl
+*.usage.jsonl
+.env
+.env.*
+secrets/
+.DS_Store
